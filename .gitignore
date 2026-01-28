@@ -1,0 +1,8 @@
+# runtime
+__pycache__/
+*.pyc
+.env
+
+# demo artifacts
+data/
+out/
