@@ -21,7 +21,7 @@ def main():
     assert "estoque" in data, "faltando relatorio de estoque"
     assert "regras" in data, "faltando relatorio de regras"
 
-    print("Teste de fumaca OK")
+    print("Teste de fumaça OK")
 
 
 if __name__ == "__main__":
