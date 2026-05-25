@@ -9,12 +9,14 @@ DB_PATH = os.path.join("data", "erp_demo.db")
 def reset_schema(conn):
     conn.executescript(
         """
-        DROP TABLE IF EXISTS products;
-        DROP TABLE IF EXISTS sales;
-        DROP TABLE IF EXISTS invoices;
-        DROP TABLE IF EXISTS competitor_prices;
-        DROP TABLE IF EXISTS orders;
+        DROP TABLE IF EXISTS customer_orders;
+        DROP TABLE IF EXISTS users;
         DROP TABLE IF EXISTS order_items;
+        DROP TABLE IF EXISTS orders;
+        DROP TABLE IF EXISTS competitor_prices;
+        DROP TABLE IF EXISTS invoices;
+        DROP TABLE IF EXISTS sales;
+        DROP TABLE IF EXISTS products;
 
         CREATE TABLE products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,8 +70,59 @@ def reset_schema(conn):
             FOREIGN KEY(order_id) REFERENCES orders(id),
             FOREIGN KEY(product_id) REFERENCES products(id)
         );
+
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'funcionario',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            nome_completo TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE customer_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            customer_name TEXT DEFAULT '',
+            customer_phone TEXT DEFAULT '',
+            items_json TEXT NOT NULL DEFAULT '[]',
+            delivery_type TEXT DEFAULT 'retirada',
+            delivery_address TEXT DEFAULT '',
+            taxa_entrega REAL DEFAULT 0.0,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            total REAL DEFAULT 0.0,
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            telefone TEXT NOT NULL DEFAULT '',
+            senha_hash TEXT NOT NULL,
+            endereco_rua TEXT DEFAULT '',
+            endereco_numero TEXT DEFAULT '',
+            endereco_complemento TEXT DEFAULT '',
+            endereco_bairro TEXT DEFAULT '',
+            endereco_cidade TEXT DEFAULT 'Rio de Janeiro',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         """
     )
+
+
+def _hash_password(password: str) -> str:
+    try:
+        import bcrypt
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    except Exception:
+        import hashlib, hmac as hmac_mod
+        print("[AVISO] bcrypt indisponivel - usando SHA-256 (apenas para demo)")
+        return "sha256:" + hmac_mod.new(b"demo-key", password.encode(), hashlib.sha256).hexdigest()
 
 
 def seed_data(conn):
@@ -88,7 +141,6 @@ def seed_data(conn):
 
     today = datetime.now(timezone.utc).date()
 
-    # Sales (baseado no exemplo do enunciado)
     vendas = [
         (1, "2025-12-01", "Centro", "Joao", 125.80),
         (2, "2025-12-05", "Centro", "Maria", 89.50),
@@ -113,7 +165,6 @@ def seed_data(conn):
         sales_rows,
     )
 
-    # Invoices
     invoice_rows = []
     for i, (sku, _, _, _, cost, _) in enumerate(products, start=1):
         inv_date = (today - timedelta(days=(i % 14))).isoformat()
@@ -125,7 +176,6 @@ def seed_data(conn):
         invoice_rows,
     )
 
-    # Competitor prices
     comp_rows = [
         ("MED001", "ConcorrenteA", 11.50, today.isoformat()),
         ("MED002", "ConcorrenteB", 16.90, today.isoformat()),
@@ -136,7 +186,6 @@ def seed_data(conn):
         comp_rows,
     )
 
-    # Orders
     order_rows = [
         ("enviado", (today - timedelta(days=1)).isoformat(), "Carlos Silva", 120.0),
         ("processando", today.isoformat(), "Ana Souza", 85.0),
@@ -162,6 +211,52 @@ def seed_data(conn):
         order_item_rows,
     )
 
+    # Demo users
+    users_rows = [
+        ("gestor", "gestor@farmacia.com", _hash_password("farmacia123"), "gestor", 1, "Gestor Principal"),
+        ("funcionario", "func@farmacia.com", _hash_password("farmacia456"), "funcionario", 1, "Funcionario Demo"),
+    ]
+    conn.executemany(
+        "INSERT INTO users (username, email, password_hash, role, is_active, nome_completo) VALUES (?, ?, ?, ?, ?, ?)",
+        users_rows,
+    )
+
+    # Demo customer orders
+    customer_order_rows = [
+        ("sessao_demo_1", "Maria Silva", "21999001111",
+         '[{"sku":"MED001","nome":"Dipirona 500mg","preco":12.90,"quantidade":2}]',
+         "retirada", "", 0.0, "confirmado", 25.80, "", (today - timedelta(days=2)).isoformat()),
+        ("sessao_demo_2", "João Santos", "21988002222",
+         '[{"sku":"HIG001","nome":"Alcool Gel 70%","preco":9.90,"quantidade":1}]',
+         "entrega", "Rua das Flores, 100 - Barra", 5.0, "em_preparo", 14.90, "", (today - timedelta(days=1)).isoformat()),
+        ("sessao_demo_3", "Ana Oliveira", "21977003333",
+         '[{"sku":"SUP001","nome":"Vitamina C 1g","preco":39.90,"quantidade":1},{"sku":"MED002","nome":"Paracetamol 750mg","preco":18.50,"quantidade":2}]',
+         "entrega", "Av. das Americas, 500 - Recreio", 8.0, "pendente", 76.90, "", today.isoformat()),
+    ]
+    conn.executemany(
+        """INSERT INTO customer_orders
+           (session_id, customer_name, customer_phone, items_json, delivery_type,
+            delivery_address, taxa_entrega, status, total, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        customer_order_rows,
+    )
+
+    # Demo customers
+    demo_customers = [
+        ("Maria Silva", "maria@email.com", "21999001111",
+         _hash_password("senha123"),
+         "Rua das Flores", "100", "Apto 201", "Barra da Tijuca", "Rio de Janeiro"),
+        ("João Santos", "joao@email.com", "21988002222",
+         _hash_password("senha123"),
+         "Av. das Américas", "500", "Casa", "Recreio", "Rio de Janeiro"),
+    ]
+    conn.executemany(
+        """INSERT INTO customers (nome, email, telefone, senha_hash,
+           endereco_rua, endereco_numero, endereco_complemento, endereco_bairro, endereco_cidade)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        demo_customers,
+    )
+
 
 if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
@@ -171,5 +266,11 @@ if __name__ == "__main__":
         seed_data(conn)
         conn.commit()
         print(f"Banco demo criado em {DB_PATH}")
+        print("Usuarios demo criados:")
+        print("  gestor / farmacia123  (role: gestor)")
+        print("  funcionario / farmacia456  (role: funcionario)")
+        print("Clientes demo criados:")
+        print("  maria@email.com / senha123")
+        print("  joao@email.com / senha123")
     finally:
         conn.close()

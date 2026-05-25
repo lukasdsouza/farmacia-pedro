@@ -70,8 +70,7 @@ def _parse_delivery_rules(raw: str) -> List[Tuple[str, float, str]]:
 
 def _match_delivery_rule(bairro: str, rules: List[Tuple[str, float, str]]) -> Optional[Tuple[str, float, str]]:
     bairro_norm = _normalize(bairro)
-    sorted_rules = sorted(rules, key=lambda r: len(r[0]), reverse=True)
-    for rule in sorted_rules:
+    for rule in sorted(rules, key=lambda r: len(r[0]), reverse=True):
         key_norm = _normalize(rule[0])
         if key_norm and key_norm in bairro_norm:
             return rule
@@ -93,57 +92,52 @@ class AtendimentoFlow:
         if msg_norm in {"ajuda", "menu", "comandos"}:
             return self._help(), state, data
 
-        # Novo: estados para nome e contato
         if state == "ASK_CLIENT_NAME":
-            data["nome_cliente"] = message.strip().title()
-            return (f"Obrigado, {data['nome_cliente']}! Podemos te chamar nesse número se precisarmos falar sobre seu pedido? (Responda sim ou não)", "ASK_CONTACT_PERMISSION", data)
+            data["nome_cliente"] = message.strip().title()[:100]
+            return (
+                f"Obrigado, {data['nome_cliente']}! "
+                "Podemos te chamar nesse numero se precisarmos falar sobre seu pedido? (Responda sim ou nao)",
+                "ASK_CONTACT_PERMISSION",
+                data,
+            )
 
         if state == "ASK_CONTACT_PERMISSION":
-            if msg_norm in {"sim", "pode", "claro", "ok", "sim pode", "sim, pode", "pode sim"}:
-                data["pode_contato"] = True
-            else:
-                data["pode_contato"] = False
-            # Log do pedido
+            data["pode_contato"] = msg_norm in {"sim", "pode", "claro", "ok", "sim pode", "pode sim"}
             self._log_pedido(data)
-            return ("Seu pedido foi registrado! Assim que o entregador sair para entrega, avisaremos por aqui. Precisa de mais alguma coisa?", "DONE", data)
+            return (
+                "Seu pedido foi registrado! Assim que o entregador sair para entrega, avisaremos por aqui. "
+                "Precisa de mais alguma coisa?",
+                "DONE",
+                data,
+            )
 
         if state == "START":
             return self._handle_start(data, message)
-
         if state == "ASK_PRODUCT_CHOICE":
             return self._handle_choice(data, message)
-
         if state == "ASK_VARIANT":
             return self._handle_variant(data, message)
-
         if state == "ASK_QTY":
             return self._handle_qty(data, message)
-
         if state == "ASK_CART_QTY":
             return self._handle_cart_qty(data, message)
-
         if state == "OUT_OF_STOCK":
             return self._handle_out_of_stock(data, message)
-
         if state == "ASK_FULFILLMENT":
             return self._handle_fulfillment(data, message)
-
         if state == "PICKUP_CONFIRM":
             return self._handle_pickup_confirm(data, message)
-
         if state == "DELIVERY_ADDRESS":
             return self._handle_delivery_address(data, message)
-
         if state == "DELIVERY_DETAILS":
             return self._handle_delivery_details(data, message)
 
         if state == "DONE":
-            # Humanização e compreensão flexível
-            if msg_norm in {"nao", "não", "nao quero", "não quero", "obrigado", "obrigada", "só", "so", "só isso", "so isso", "n", "no", "acho que não", "talvez depois", "por enquanto não"}:
-                return "Perfeito, seu pedido está finalizado! Se precisar de mais alguma coisa, é só chamar. Tenha um ótimo dia!", "DONE", data
-            if msg_norm in {"sim", "quero", "adicionar", "sim quero", "sim, quero", "sim por favor", "mais", "adicionar item", "adicionar mais"}:
-                return "Claro! Me diz o próximo produto que você quer adicionar.", "START", {}
-            return ("Se quiser adicionar mais algum item, é só falar o nome do produto. Se não, pode responder 'não' para finalizar o pedido! 😊", "DONE", data)
+            if msg_norm in {"nao", "nao quero", "obrigado", "obrigada", "so", "so isso", "n", "no", "talvez depois"}:
+                return "Perfeito, seu pedido esta finalizado! Se precisar de mais alguma coisa, e so chamar. Tenha um otimo dia!", "DONE", data
+            if msg_norm in {"sim", "quero", "adicionar", "sim quero", "mais"}:
+                return "Claro! Me diz o proximo produto que voce quer adicionar.", "START", {}
+            return "Se quiser adicionar mais algum item, e so falar o nome do produto. Se nao, pode responder 'nao' para finalizar!", "DONE", data
 
         return self._greeting(), "START", {}
 
@@ -174,9 +168,8 @@ class AtendimentoFlow:
                 if encontrados:
                     produtos.append(encontrados[0])
             if len(produtos) >= 2:
-                data["carrinho"] = [self._to_dict(prod) for prod in produtos]
-                nomes = [prod.nome for prod in produtos]
-                lista = "\n".join(f"- {nome}" for nome in nomes)
+                data["carrinho"] = [self._to_dict(p) for p in produtos]
+                lista = "\n".join(f"- {p.nome}" for p in produtos)
                 return (
                     "Fechado. Me confirma a quantidade de cada item (responda no formato: 2, 1, 3):\n" + lista,
                     "ASK_CART_QTY",
@@ -187,35 +180,17 @@ class AtendimentoFlow:
         if not matches:
             return self._greeting(), "START", {}
 
-        if len(matches) > 1 and (" e " in msg_norm or "," in message):
-            data["carrinho"] = [self._to_dict(prod) for prod in matches]
-            nomes = [prod.nome for prod in matches]
-            lista = "\n".join(f"- {nome}" for nome in nomes)
-            return (
-                "Fechado. Me confirma a quantidade de cada item (responda no formato: 2, 1, 3):\n" + lista,
-                "ASK_CART_QTY",
-                data,
-            )
-
         if len(matches) > 1:
-            data["opcoes"] = [self._to_dict(prod) for prod in matches]
-            linhas = [f"{idx+1}) {prod.nome}" for idx, prod in enumerate(matches)]
-            return (
-                "Encontrei mais de um produto. Qual voce quer?\n" + "\n".join(linhas),
-                "ASK_PRODUCT_CHOICE",
-                data,
-            )
+            data["opcoes"] = [self._to_dict(p) for p in matches]
+            linhas = [f"{i+1}) {p.nome}" for i, p in enumerate(matches)]
+            return "Encontrei mais de um produto. Qual voce quer?\n" + "\n".join(linhas), "ASK_PRODUCT_CHOICE", data
 
         produto = matches[0]
         data["produto"] = self._to_dict(produto)
         variantes = self._variants_for(produto)
-        if variantes:
+        if len(variantes) >= 2:
             data["variantes"] = variantes
-            return (
-                f"Tenho sim. Voce quer {variantes[0]} ou {variantes[1]}?",
-                "ASK_VARIANT",
-                data,
-            )
+            return f"Tenho sim. Voce quer {variantes[0]} ou {variantes[1]}?", "ASK_VARIANT", data
 
         return (
             f"Beleza! {produto.nome} esta R$ {produto.preco:.2f} e tem disponivel agora na {self.settings.chat_filial}. "
@@ -232,29 +207,24 @@ class AtendimentoFlow:
         msg_norm = _normalize(message)
         match_num = _extract_qty(msg_norm)
         escolhido = None
-        if match_num:
-            idx = match_num - 1
-            if 0 <= idx < len(opcoes):
-                escolhido = opcoes[idx]
+        if match_num and 1 <= match_num <= len(opcoes):
+            escolhido = opcoes[match_num - 1]
         if not escolhido:
             for opcao in opcoes:
-                if _normalize(opcao.get("nome", "")) in msg_norm:
+                opcao_norm = _normalize(opcao.get("nome", ""))
+                if opcao_norm and any(word in msg_norm for word in opcao_norm.split()):
                     escolhido = opcao
                     break
         if not escolhido:
-            return ("Me diz o numero da opcao ou o nome do produto.", "ASK_PRODUCT_CHOICE", data)
+            return "Me diz o numero da opcao ou o nome do produto.", "ASK_PRODUCT_CHOICE", data
 
         data["produto"] = escolhido
         data.pop("opcoes", None)
         produto = self._from_dict(escolhido)
         variantes = self._variants_for(produto)
-        if variantes:
+        if len(variantes) >= 2:
             data["variantes"] = variantes
-            return (
-                f"Tenho sim. Voce quer {variantes[0]} ou {variantes[1]}?",
-                "ASK_VARIANT",
-                data,
-            )
+            return f"Tenho sim. Voce quer {variantes[0]} ou {variantes[1]}?", "ASK_VARIANT", data
 
         return (
             f"Beleza! {produto.nome} esta R$ {produto.preco:.2f} e tem disponivel agora na {self.settings.chat_filial}. "
@@ -267,11 +237,11 @@ class AtendimentoFlow:
         produto_raw = data.get("produto")
         if not produto_raw:
             return self._greeting(), "START", {}
-        data["variante"] = message.strip()
+        data["variante"] = message.strip()[:100]
         produto = self._from_dict(produto_raw)
         return (
-            f"Fechado. {produto.nome} ({data['variante']}) esta R$ {produto.preco:.2f} e tem disponivel agora na {self.settings.chat_filial}. "
-            "Quantas unidades voce quer?",
+            f"Fechado. {produto.nome} ({data['variante']}) esta R$ {produto.preco:.2f} "
+            f"e tem disponivel agora na {self.settings.chat_filial}. Quantas unidades voce quer?",
             "ASK_QTY",
             data,
         )
@@ -285,10 +255,12 @@ class AtendimentoFlow:
         if not produto_raw:
             return self._greeting(), "START", {}
         produto = self._from_dict(produto_raw)
+
         if produto.estoque <= 0:
             data["produto_out"] = produto_raw
             return (
-                f"No momento, acabou aqui na {self.settings.chat_filial}. Quer que eu sugira uma alternativa ou te avise quando chegar?",
+                f"No momento, acabou aqui na {self.settings.chat_filial}. "
+                "Quer que eu sugira uma alternativa ou te avise quando chegar?",
                 "OUT_OF_STOCK",
                 data,
             )
@@ -305,7 +277,6 @@ class AtendimentoFlow:
             return "Fechado. Me passa seu bairro e rua (pode ser sem numero por enquanto).", "DELIVERY_ADDRESS", data
         if _is_pickup(message):
             return "Perfeito. Em quanto tempo voce pretende retirar? (ex.: 30 min, 1h, hoje)", "PICKUP_CONFIRM", data
-
         return "Voce prefere reservar pra retirar na loja ou receber em casa?", "ASK_FULFILLMENT", data
 
     def _handle_cart_qty(self, data: Dict, message: str) -> Tuple[str, str, Dict]:
@@ -314,11 +285,7 @@ class AtendimentoFlow:
             return self._greeting(), "START", {}
         quantidades = _extract_qty_list(message)
         if len(quantidades) != len(carrinho):
-            return (
-                "Me passa a quantidade de cada item na mesma ordem (ex.: 2, 1, 3).",
-                "ASK_CART_QTY",
-                data,
-            )
+            return "Me passa a quantidade de cada item na mesma ordem (ex.: 2, 1, 3).", "ASK_CART_QTY", data
         data["quantidades"] = quantidades
         return "Voce prefere retirar na loja ou entrega em casa?", "ASK_FULFILLMENT", data
 
@@ -332,24 +299,16 @@ class AtendimentoFlow:
         if "alternativa" in msg_norm:
             alternativas = self.gateway.suggest_alternatives(produto.categoria, produto.sku, limit=2)
             if alternativas:
-                linhas = [f"- {alt.nome} (R$ {alt.preco:.2f})" for alt in alternativas]
+                linhas = [f"- {a.nome} (R$ {a.preco:.2f})" for a in alternativas]
                 return (
                     "Aqui vao alternativas parecidas:\n" + "\n".join(linhas) + "\nQuer alguma delas?",
                     "ASK_PRODUCT_CHOICE",
                     {"opcoes": [self._to_dict(a) for a in alternativas]},
                 )
-            return (
-                "No momento nao tenho alternativas. Quer que eu te avise quando chegar?",
-                "OUT_OF_STOCK",
-                data,
-            )
+            return "No momento nao tenho alternativas. Quer que eu te avise quando chegar?", "OUT_OF_STOCK", data
 
         if "avisar" in msg_norm or "avise" in msg_norm:
-            return (
-                "Combinado. Assim que chegar eu te aviso. Quer adicionar mais algum item?",
-                "DONE",
-                data,
-            )
+            return "Combinado. Assim que chegar eu te aviso. Quer adicionar mais algum item?", "DONE", data
 
         return "Voce prefere uma alternativa agora ou quer que eu te avise quando chegar?", "OUT_OF_STOCK", data
 
@@ -361,7 +320,7 @@ class AtendimentoFlow:
         return "So pra eu fechar certinho: voce prefere retirar na loja ou entrega em casa?", "ASK_FULFILLMENT", data
 
     def _handle_pickup_confirm(self, data: Dict, message: str) -> Tuple[str, str, Dict]:
-        data["retirada_em"] = message.strip()
+        data["retirada_em"] = message.strip()[:200]
         produto_raw = data.get("produto")
         if produto_raw:
             produto = self._from_dict(produto_raw)
@@ -369,16 +328,17 @@ class AtendimentoFlow:
             validade = self.settings.chat_reserva_validade
             info_validade = f" Sua reserva fica garantida ate {validade}." if validade else ""
             return (
-                f"Fechado. Reservei {qty} unidade(s) de {produto.nome} para retirada {data['retirada_em']} na {self.settings.chat_loja_nome}."
+                f"Fechado. Reservei {qty} unidade(s) de {produto.nome} para retirada {data['retirada_em']} "
+                f"na {self.settings.chat_loja_nome}."
                 + info_validade
-                + " Quer que eu te mande a localizacao e o horario de funcionamento?",
-                "DONE",
+                + " Para finalizar, qual seu nome?",
+                "ASK_CLIENT_NAME",
                 data,
             )
-        return "Reserva confirmada. Quer que eu te mande a localizacao e o horario?", "DONE", data
+        return "Reserva confirmada. Para finalizar, qual seu nome?", "ASK_CLIENT_NAME", data
 
     def _handle_delivery_address(self, data: Dict, message: str) -> Tuple[str, str, Dict]:
-        data["endereco_parcial"] = message.strip()
+        data["endereco_parcial"] = message.strip()[:500]
         rule = _match_delivery_rule(message, self.delivery_rules)
         if rule:
             bairro, taxa, prazo = rule
@@ -399,36 +359,36 @@ class AtendimentoFlow:
         )
 
     def _handle_delivery_details(self, data: Dict, message: str) -> Tuple[str, str, Dict]:
-        data["entrega_detalhes"] = message.strip()
+        data["entrega_detalhes"] = message.strip()[:500]
         produto_raw = data.get("produto")
         qty = data.get("quantidade", 1)
         if produto_raw:
             produto = self._from_dict(produto_raw)
-            # Ao finalizar, pedir nome do cliente
             return (
-                f"Beleza. Vou preparar {qty} unidade(s) de {produto.nome}. Agora, pra finalizar seu pedido, qual seu nome?", "ASK_CLIENT_NAME", data
+                f"Beleza. Vou preparar {qty} unidade(s) de {produto.nome}. "
+                "Agora, pra finalizar seu pedido, qual seu nome?",
+                "ASK_CLIENT_NAME",
+                data,
             )
-        return (
-            "Beleza. Agora, pra finalizar seu pedido, qual seu nome?", "ASK_CLIENT_NAME", data
-        )
+        return "Beleza. Agora, pra finalizar seu pedido, qual seu nome?", "ASK_CLIENT_NAME", data
 
-    def _log_pedido(self, data: Dict):
-        import datetime
-        import os
+    def _log_pedido(self, data: Dict) -> None:
+        import datetime, os
         safe_nome = str(data.get("nome_cliente", "")).replace("\n", " ").replace("\r", " ")
-        safe_contato = bool(data.get("pode_contato"))
-        safe_endereco = str(data.get("endereco_parcial", "")).replace("\n", " ").replace("\r", " ")
         log_line = (
             f"[{datetime.datetime.now().isoformat()}] Pedido criado: "
-            f"nome={safe_nome!r} contato_permitido={safe_contato} "
-            f"endereco={safe_endereco!r}"
+            f"nome={safe_nome!r} contato={data.get('pode_contato')} "
+            f"endereco={str(data.get('endereco_parcial', ''))[:100]!r}"
         )
         os.makedirs("out", exist_ok=True)
         with open("out/pedidos.log", "a", encoding="utf-8") as f:
             f.write(log_line + "\n")
 
-    # Mapeamento de variantes por palavra-chave no nome do produto.
-    # Adicione entradas aqui para suportar novos produtos com variantes.
+        try:
+            self.gateway.save_customer_order(data)
+        except Exception as exc:
+            print(f"[AVISO] Falha ao salvar pedido no banco: {exc}")
+
     _VARIANT_MAP = {
         "dipirona": ["comprimido", "gotas"],
         "amoxicilina": ["capsula 500mg", "suspensao"],

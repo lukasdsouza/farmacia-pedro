@@ -1,8 +1,12 @@
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import List
+
+_MAX_CONTENT_LEN = 4096
+_MAX_SESSION_ID_LEN = 128
 
 
 @dataclass
@@ -22,25 +26,27 @@ class SessionStore:
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
 
+    def _safe_session_id(self, session_id: str) -> str:
+        truncated = session_id[:_MAX_SESSION_ID_LEN]
+        safe = re.sub(r"[^\w\-]", "_", truncated).strip("_")
+        return safe or "sessao"
+
     def _path(self, session_id: str) -> str:
-        safe_id = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_ ").strip()
-        if not safe_id:
-            safe_id = "sessao"
-        filename = safe_id.replace(" ", "_") + ".jsonl"
-        return os.path.join(self.base_dir, filename)
+        return os.path.join(self.base_dir, self._safe_session_id(session_id) + ".jsonl")
 
     def append(self, session_id: str, role: str, content: str) -> None:
+        content = content[:_MAX_CONTENT_LEN]
         path = self._path(session_id)
-        record = {"role": role, "content": content}
-        with open(path, "a", encoding="ascii") as handle:
-            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        record = {"role": role[:32], "content": content}
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def load(self, session_id: str) -> ChatState:
         path = self._path(session_id)
         state = ChatState(session_id=session_id)
         if not os.path.exists(path):
             return state
-        with open(path, "r", encoding="ascii") as handle:
+        with open(path, "r", encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -56,17 +62,13 @@ class SessionStore:
         return state
 
     def _state_path(self, session_id: str) -> str:
-        safe_id = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_ ").strip()
-        if not safe_id:
-            safe_id = "sessao"
-        filename = safe_id.replace(" ", "_") + ".state.json"
-        return os.path.join(self.base_dir, filename)
+        return os.path.join(self.base_dir, self._safe_session_id(session_id) + ".state.json")
 
     def load_state(self, session_id: str) -> dict:
         path = self._state_path(session_id)
         if not os.path.exists(path):
             return {"state": "START", "data": {}}
-        with open(path, "r", encoding="ascii") as handle:
+        with open(path, "r", encoding="utf-8") as handle:
             try:
                 data = json.load(handle)
             except json.JSONDecodeError:
@@ -79,5 +81,12 @@ class SessionStore:
     def save_state(self, session_id: str, state: str, data: dict) -> None:
         path = self._state_path(session_id)
         payload = {"state": state, "data": data}
-        with open(path, "w", encoding="ascii") as handle:
-            json.dump(payload, handle, ensure_ascii=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+
+    def list_sessions(self) -> List[str]:
+        sessions = []
+        for fname in os.listdir(self.base_dir):
+            if fname.endswith(".jsonl"):
+                sessions.append(fname[:-6])
+        return sorted(sessions)
